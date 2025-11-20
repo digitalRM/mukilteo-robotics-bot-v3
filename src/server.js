@@ -38,7 +38,15 @@ function buildEmbed(events, teamFilter = null) {
     ? events.filter((e) => e.teams.includes(teamFilter))
     : events;
 
-  displayEvents.sort((a, b) => new Date(a.start) - new Date(b.start));
+  displayEvents.sort((a, b) => {
+    const nextA = a.upcoming_dates[0]
+      ? new Date(a.upcoming_dates[0])
+      : new Date(a.start);
+    const nextB = b.upcoming_dates[0]
+      ? new Date(b.upcoming_dates[0])
+      : new Date(b.start);
+    return nextA - nextB;
+  });
 
   if (displayEvents.length === 0) {
     return {
@@ -51,17 +59,31 @@ function buildEmbed(events, teamFilter = null) {
   }
 
   const fields = displayEvents.slice(0, 10).map((e) => {
-    const startDate = new Date(e.start);
-    const timestamp = Math.floor(startDate.getTime() / 1000);
     const teamsString = e.teams
       .map((t) => (teamFilter === t ? `__**${t}**__` : t))
       .join(", ");
 
+    let dateString = "";
+    if (e.is_league && e.upcoming_dates.length > 0) {
+      const nextSession = new Date(e.upcoming_dates[0]);
+      const ts = Math.floor(nextSession.getTime() / 1000);
+      const remaining = e.upcoming_dates.length - 1;
+      const moreText = remaining > 0 ? `\n(+ ${remaining} more sessions)` : "";
+
+      dateString = `**Next Session:** <t:${ts}:D> (<t:${ts}:R>)${moreText}`;
+    } else {
+      const startDate = new Date(e.start);
+      const timestamp = Math.floor(startDate.getTime() / 1000);
+      dateString = `🗓️ <t:${timestamp}:D> (<t:${timestamp}:R>)`;
+    }
+
+    const eventUrl = `https://www.robotevents.com/robot-competitions/vex-robotics-competition/${e.sku}.html`;
+
     return {
-      name: e.name,
+      name: e.name.length > 61 ? e.name.slice(0, 61) : e.name,
       value: `\n📍 ${
         e.location?.venue || "Unknown"
-      }\n🗓️ <t:${timestamp}:D> (<t:${timestamp}:R>)\n🤖 **Teams:** ${teamsString}\n\n  ----------------------------------------------------------`,
+      }\n${dateString}\n🤖 **Teams:** ${teamsString}\n[View on RobotEvents](${eventUrl})\n\n----------------------------------------------------------`,
       inline: false,
     };
   });
@@ -155,9 +177,12 @@ export default {
 
         if (validTeamInfos.length === 0) return [];
 
-        const today = new Date().toISOString().split("T")[0];
+        const seasonStart = new Date();
+        seasonStart.setMonth(seasonStart.getMonth() - 5);
+        const startStr = seasonStart.toISOString().split("T")[0];
+
         const eventPromises = validTeamInfos.map((info) => {
-          const url = `https://www.robotevents.com/api/v2/events?team[]=${info.id}&start=${today}&per_page=20`;
+          const url = `https://www.robotevents.com/api/v2/events?team[]=${info.id}&start=${startStr}&per_page=50`;
           return fetchRobotEvents(url, env.ROBOT_EVENTS_TOKEN).then((data) => ({
             team: info.number,
             events: data?.data || [],
@@ -167,12 +192,66 @@ export default {
         const results = await Promise.all(eventPromises);
 
         const eventMap = new Map();
+        const today = new Date();
+        const yesterday = new Date(today.getTime() - 86400000);
 
         results.forEach(({ team, events }) => {
           events.forEach((event) => {
+            const eventEnd = new Date(event.end);
+            if (eventEnd < yesterday) return;
+
             if (!eventMap.has(event.id)) {
-              eventMap.set(event.id, { ...event, teams: [] });
+              let upcomingDates = [];
+              let isLeague = false;
+
+              const locationKeys = event.locations
+                ? Object.keys(event.locations)
+                : [];
+
+              if (locationKeys.length > 1) {
+                isLeague = true;
+                const dates = locationKeys
+                  .map((dStr) => new Date(dStr))
+                  .filter((d) => d >= yesterday)
+                  .sort((a, b) => a - b);
+
+                if (dates.length > 0) {
+                  upcomingDates = dates.map((d) => d.toISOString());
+                }
+              } else if (locationKeys.length === 1) {
+                const start = new Date(event.start);
+                const end = new Date(event.end);
+                const durationDays = (end - start) / (1000 * 60 * 60 * 24);
+
+                if (durationDays > 4) {
+                  isLeague = true;
+                  const d = new Date(locationKeys[0]);
+                  if (d >= yesterday) {
+                    upcomingDates = [d.toISOString()];
+                  }
+                } else {
+                  isLeague = false;
+                  upcomingDates = [event.start];
+                }
+              } else {
+                const start = new Date(event.start);
+                const end = new Date(event.end);
+                const durationDays = (end - start) / (1000 * 60 * 60 * 24);
+
+                if (durationDays > 4) {
+                  isLeague = true;
+                }
+                upcomingDates = [event.start];
+              }
+
+              eventMap.set(event.id, {
+                ...event,
+                teams: [],
+                is_league: isLeague,
+                upcoming_dates: upcomingDates,
+              });
             }
+
             const existing = eventMap.get(event.id);
             if (!existing.teams.includes(team)) {
               existing.teams.push(team);

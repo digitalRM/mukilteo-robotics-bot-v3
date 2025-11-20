@@ -1,0 +1,7 @@
+name = "mukilteo-robotics-bot"
+main = "src/server.js"
+compatibility_date = "2023-05-18"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Public variables can go here, secrets should be set via `wrangler secret put`

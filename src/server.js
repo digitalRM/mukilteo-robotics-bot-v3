@@ -6,7 +6,7 @@ import {
   ButtonStyleTypes,
 } from "discord-interactions";
 
-const TEAMS = ["44244N", "44244D", "44244R", "44244C", "44344S"];
+const TEAMS = ["44244N", "44244D", "44244R", "44244C", "44244G", "44344S"];
 
 async function fetchRobotEvents(url, token) {
   const response = await fetch(url, {
@@ -31,6 +31,16 @@ async function getTeamId(teamNumber, token) {
   }
   console.error(`Could not find ID for team ${teamNumber}`);
   return null;
+}
+
+function getTimestampWithTime(dateString, targetHourLocal) {
+  const d = new Date(dateString);
+  d.setUTCHours(0, 0, 0, 0);
+  const utcHour = targetHourLocal + 8;
+
+  d.setUTCHours(utcHour, 0, 0, 0);
+
+  return Math.floor(d.getTime() / 1000);
 }
 
 function buildEmbed(events, teamFilter = null) {
@@ -65,25 +75,23 @@ function buildEmbed(events, teamFilter = null) {
 
     let dateString = "";
     if (e.is_league && e.upcoming_dates.length > 0) {
-      const nextSession = new Date(e.upcoming_dates[0]);
-      const ts = Math.floor(nextSession.getTime() / 1000);
+      const ts = getTimestampWithTime(e.upcoming_dates[0], 15);
       const remaining = e.upcoming_dates.length - 1;
       const moreText = remaining > 0 ? `\n(+ ${remaining} more sessions)` : "";
 
       dateString = `**Next Session:** <t:${ts}:D> (<t:${ts}:R>)${moreText}`;
     } else {
-      const startDate = new Date(e.start);
-      const timestamp = Math.floor(startDate.getTime() / 1000);
-      dateString = `🗓️ <t:${timestamp}:D> (<t:${timestamp}:R>)`;
+      const ts = getTimestampWithTime(e.start, 7);
+      dateString = `🗓️ <t:${ts}:D> (<t:${ts}:R>)`;
     }
 
     const eventUrl = `https://www.robotevents.com/robot-competitions/vex-robotics-competition/${e.sku}.html`;
 
     return {
-      name: e.name.length > 61 ? e.name.slice(0, 61) : e.name,
+      name: e.name.length > 61 ? "\n" + e.name.slice(0, 61) : "\n" + e.name,
       value: `\n📍 ${
         e.location?.venue || "Unknown"
-      }\n${dateString}\n🤖 **Teams:** ${teamsString}\n[View on RobotEvents](${eventUrl})\n\n----------------------------------------------------------`,
+      }\n${dateString}\n🤖 **Teams:** ${teamsString}\n[View on RobotEvents](${eventUrl})\n\n-----------------------------------------------------\n‎ `,
       inline: false,
     };
   });
@@ -93,7 +101,7 @@ function buildEmbed(events, teamFilter = null) {
       ? `Competitions for ${teamFilter}`
       : "Upcoming Competitions",
     description:
-      "Here are the upcoming events for Mukilteo Robotics.\n\n ----------------------------------------------------------",
+      "Here are the upcoming events for Mukilteo Robotics.\n\n -----------------------------------------------------",
     color: 0x0099ff,
     fields: fields,
     footer: { text: "Mukilteo Robotics" },
@@ -127,7 +135,7 @@ function buildButtons(selectedTeam = null) {
   };
   const row2 = {
     type: MessageComponentTypes.ACTION_ROW,
-    components: buttons.slice(0, 1),
+    components: [buttons[6], buttons[0]],
   };
 
   return [row1, row2];
